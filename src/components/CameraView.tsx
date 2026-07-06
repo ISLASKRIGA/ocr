@@ -197,7 +197,7 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
               <div className="absolute inset-0 bg-[#020305]/65"></div>
 
               {/* Green bounding box */}
-              <div className="absolute inset-x-8 md:inset-x-24 top-14 bottom-24 md:top-16 md:bottom-28 border-[3px] border-emerald-500/80 rounded-xl flex items-center justify-center shadow-[0_0_40px_rgba(16,185,129,0.25),inset_0_0_30px_rgba(16,185,129,0.15)]">
+              <div className="absolute top-[38%] left-1/2 -translate-x-1/2 -translate-y-1/2 h-[48%] sm:h-[52%] max-h-[380px] md:max-h-[440px] aspect-[1/1.414] border-[3px] border-emerald-500/80 rounded-xl flex items-center justify-center shadow-[0_0_40px_rgba(16,185,129,0.25),inset_0_0_30px_rgba(16,185,129,0.15)]">
                 {/* Decorative corners */}
                 <div className="absolute -top-[3px] -left-[3px] w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-sm"></div>
                 <div className="absolute -top-[3px] -right-[3px] w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-sm"></div>
