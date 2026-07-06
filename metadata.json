@@ -1,0 +1,6 @@
+{
+  "name": "Document Scanner",
+  "description": "Escanea documentos con precisión usando tu cámara, ajusta las esquinas, aplica filtros y expórtalos directamente a PDF.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
