@@ -1,9 +1,10 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Camera, RefreshCw, Upload, Sparkles, HelpCircle } from 'lucide-react';
 import { motion } from 'motion/react';
+import { Point } from '../types';
 
 interface CameraViewProps {
-  onCapture: (dataUrl: string) => void;
+  onCapture: (dataUrl: string, autoCorners: Point[]) => void;
   onImageUpload: (dataUrl: string) => void;
 }
 
@@ -116,9 +117,14 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
     if (!videoRef.current || !stream) return;
 
     const video = videoRef.current;
+    const videoW = video.videoWidth;
+    const videoH = video.videoHeight;
+    const containerW = video.clientWidth;
+    const containerH = video.clientHeight;
+
     const canvas = document.createElement('canvas');
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    canvas.width = videoW;
+    canvas.height = videoH;
 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
@@ -134,7 +140,83 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
 
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
-    onCapture(dataUrl);
+
+    // Calculate autoCorners corresponding to the green bounding box on screen
+    // Green box has top: 44%, height: 72% (max-h: 420px), aspect ratio: 1/1.414 (A4 format)
+    const greenBoxTopPct = 0.44;
+    const greenBoxHeightPct = 0.72;
+    const maxGreenHeight = 420;
+
+    // Center of green box in container coordinates
+    const xCenter = containerW / 2;
+    const yCenter = containerH * greenBoxTopPct;
+
+    // Height and Width of green box in container
+    let hGreen = containerH * greenBoxHeightPct;
+    if (hGreen > maxGreenHeight) {
+      hGreen = maxGreenHeight;
+    }
+    const wGreen = hGreen / 1.414;
+
+    // Coordinates of the 4 corners in container coordinates (TL, TR, BR, BL)
+    const pointsContainer = [
+      { x: xCenter - wGreen / 2, y: yCenter - hGreen / 2 }, // TL
+      { x: xCenter + wGreen / 2, y: yCenter - hGreen / 2 }, // TR
+      { x: xCenter + wGreen / 2, y: yCenter + hGreen / 2 }, // BR
+      { x: xCenter - wGreen / 2, y: yCenter + hGreen / 2 }, // BL
+    ];
+
+    // Map container points to video-relative coordinates (0 to 1) based on object-cover scaling
+    const videoAspect = videoW / videoH;
+    const containerAspect = containerW / containerH;
+
+    let scaledW = containerW;
+    let scaledH = containerH;
+    let xOffset = 0;
+    let yOffset = 0;
+
+    if (videoAspect < containerAspect) {
+      // Video is narrower/taller than the container: scaled to container width
+      scaledW = containerW;
+      scaledH = containerW / videoAspect;
+      yOffset = (scaledH - containerH) / 2;
+    } else {
+      // Video is wider than the container: scaled to container height
+      scaledH = containerH;
+      scaledW = containerH * videoAspect;
+      xOffset = (scaledW - containerW) / 2;
+    }
+
+    let autoCorners = pointsContainer.map(p => {
+      const xVideoScaled = p.x + xOffset;
+      const yVideoScaled = p.y + yOffset;
+
+      let xRel = xVideoScaled / scaledW;
+      let yRel = yVideoScaled / scaledH;
+
+      // Handle front camera mirroring
+      if (isFrontCamera) {
+        xRel = 1.0 - xRel;
+      }
+
+      // Clamp to ensure they lie within [0, 1]
+      xRel = Math.max(0, Math.min(1, xRel));
+      yRel = Math.max(0, Math.min(1, yRel));
+
+      return { x: xRel, y: yRel };
+    });
+
+    // If using mirrored front camera, swap horizontal points to preserve (TL, TR, BR, BL) order
+    if (isFrontCamera) {
+      autoCorners = [
+        autoCorners[1], // TR becomes TL
+        autoCorners[0], // TL becomes TR
+        autoCorners[3], // BL becomes BR
+        autoCorners[2], // BR becomes BL
+      ];
+    }
+
+    onCapture(dataUrl, autoCorners);
   }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -194,7 +276,7 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
           {!isLoading && (
             <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 z-10">
               {/* Green bounding box with massive box shadow to act as outer dark mask (cutout effect) */}
-              <div className="absolute top-[42%] left-1/2 -translate-x-1/2 -translate-y-1/2 h-[52%] max-h-[300px] aspect-[1/1.414] border-[3px] border-emerald-500/80 rounded-xl flex items-center justify-center shadow-[0_0_0_9999px_rgba(2,3,5,0.7),0_0_30px_rgba(16,185,129,0.35)]">
+              <div className="absolute top-[44%] left-1/2 -translate-x-1/2 -translate-y-1/2 h-[72%] max-h-[420px] aspect-[1/1.414] border-[3px] border-emerald-500/80 rounded-xl flex items-center justify-center shadow-[0_0_0_9999px_rgba(2,3,5,0.7),0_0_40px_rgba(16,185,129,0.45)]">
                 {/* Decorative corners */}
                 <div className="absolute -top-[3px] -left-[3px] w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-sm"></div>
                 <div className="absolute -top-[3px] -right-[3px] w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-sm"></div>

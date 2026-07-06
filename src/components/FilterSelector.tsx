@@ -9,6 +9,7 @@ interface FilterSelectorProps {
   onChange: (filter: FilterType, filteredDataUrl: string) => void;
   onSave: () => void;
   onCancel: () => void;
+  onAdjustCorners?: () => void;
 }
 
 interface FilterOption {
@@ -55,7 +56,8 @@ export default function FilterSelector({
   selectedFilter,
   onChange,
   onSave,
-  onCancel
+  onCancel,
+  onAdjustCorners
 }: FilterSelectorProps) {
   const [previewUrls, setPreviewUrls] = useState<Record<FilterType, string>>({
     original: '',
@@ -187,6 +189,17 @@ export default function FilterSelector({
               })}
             </div>
           </div>
+
+          {onAdjustCorners && (
+            <button
+              onClick={onAdjustCorners}
+              disabled={isProcessing}
+              className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-mono text-xs font-bold py-2.5 px-4 rounded-xl text-center border border-emerald-500/20 transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 uppercase tracking-wider"
+            >
+              <Sliders className="w-3.5 h-3.5" />
+              Reajustar recorte
+            </button>
+          )}
 
           <div className="pt-5 border-t border-white/5 mt-5 flex gap-3">
             <button

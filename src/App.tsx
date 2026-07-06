@@ -37,20 +37,13 @@ export default function App() {
     }
   }, [pages, activeStep]);
 
-  // Capture callback
-  function handleImageAcquired(dataUrl: string) {
-    setTempOriginalUrl(dataUrl);
-    setActiveStep('adjust');
-  }
-
-  // Corner confirmation callback: performs the actual perspective warp
-  function handleCornersConfirmed(corners: Point[]) {
-    if (!tempOriginalUrl) return;
+  // Performs the actual perspective warp
+  function processWarpAndAdvance(imageUrl: string, corners: Point[]) {
     setIsWarping(true);
     setTempCorners(corners);
 
     const img = new Image();
-    img.src = tempOriginalUrl;
+    img.src = imageUrl;
     img.onload = () => {
       try {
         const naturalW = img.naturalWidth;
@@ -93,6 +86,24 @@ export default function App() {
         setIsWarping(false);
       }
     };
+  }
+
+  // Capture callback
+  function handleImageAcquired(dataUrl: string, autoCorners?: Point[]) {
+    setTempOriginalUrl(dataUrl);
+    if (autoCorners) {
+      // Instant auto-crop for camera capture!
+      processWarpAndAdvance(dataUrl, autoCorners);
+    } else {
+      // Fallback to manual adjust for uploaded images
+      setActiveStep('adjust');
+    }
+  }
+
+  // Corner confirmation callback: performs warp based on manual adjustment
+  function handleCornersConfirmed(corners: Point[]) {
+    if (!tempOriginalUrl) return;
+    processWarpAndAdvance(tempOriginalUrl, corners);
   }
 
   // Filter selection callback
@@ -273,6 +284,9 @@ export default function App() {
                     onCancel={() => {
                       setTempWarpedUrl(null);
                       setTempFilteredUrl(null);
+                      setActiveStep('camera');
+                    }}
+                    onAdjustCorners={() => {
                       setActiveStep('adjust');
                     }}
                   />
