@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
-import { Check, RotateCcw, AlertCircle, Maximize2 } from 'lucide-react';
+import { Check, RotateCcw, AlertCircle, Maximize2, Sparkles } from 'lucide-react';
 import { Point } from '../types';
+import { detectDocumentCorners, getDefaultCorners } from '../lib/documentDetector';
 
 interface CornerAdjusterProps {
   imageUrl: string;
@@ -15,12 +16,9 @@ export default function CornerAdjuster({ imageUrl, onConfirm, onCancel }: Corner
   const magnifierRef = useRef<HTMLCanvasElement | null>(null);
 
   // Store corners as relative positions (0 to 1)
-  const [corners, setCorners] = useState<Point[]>([
-    { x: 0.15, y: 0.15 }, // TL
-    { x: 0.85, y: 0.15 }, // TR
-    { x: 0.85, y: 0.85 }, // BR
-    { x: 0.15, y: 0.85 }, // BL
-  ]);
+  const [corners, setCorners] = useState<Point[]>(getDefaultCorners());
+  const [detectedCorners, setDetectedCorners] = useState<Point[] | null>(null);
+  const [isAutoDetected, setIsAutoDetected] = useState<boolean>(false);
 
   const [activeHandle, setActiveHandle] = useState<number | null>(null);
   const [imgLoaded, setImgLoaded] = useState<boolean>(false);
@@ -59,6 +57,19 @@ export default function CornerAdjuster({ imageUrl, onConfirm, onCancel }: Corner
     const img = e.currentTarget;
     setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
     setImgLoaded(true);
+
+    // Run smart edge detection to snap corners to sheet of paper automatically
+    try {
+      const autoPts = detectDocumentCorners(img);
+      setCorners(autoPts);
+      setDetectedCorners(autoPts);
+      setIsAutoDetected(true);
+    } catch (err) {
+      console.error("Fallo la detección automática de hoja:", err);
+      const fallback = getDefaultCorners();
+      setCorners(fallback);
+      setDetectedCorners(fallback);
+    }
   }
 
   function drawOverlay() {
@@ -301,12 +312,13 @@ export default function CornerAdjuster({ imageUrl, onConfirm, onCancel }: Corner
   }
 
   function handleReset() {
-    setCorners([
-      { x: 0.15, y: 0.15 },
-      { x: 0.85, y: 0.15 },
-      { x: 0.85, y: 0.85 },
-      { x: 0.15, y: 0.85 },
-    ]);
+    if (detectedCorners) {
+      setCorners([...detectedCorners]);
+      setIsAutoDetected(true);
+    } else {
+      setCorners(getDefaultCorners());
+      setIsAutoDetected(false);
+    }
   }
 
   function handleConfirmClick() {
@@ -316,11 +328,17 @@ export default function CornerAdjuster({ imageUrl, onConfirm, onCancel }: Corner
   return (
     <div className="flex flex-col h-full bg-[#020305] rounded-2xl overflow-hidden border border-white/5 shadow-2xl">
       {/* Top Header Controls */}
-      <div className="bg-[#020305] p-5 border-b border-white/5 flex items-center justify-between">
+      <div className="bg-[#020305] p-5 border-b border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div>
-          <h3 className="text-base font-bold text-white tracking-tight flex items-center gap-2">
+          <h3 className="text-base font-bold text-white tracking-tight flex flex-wrap items-center gap-2">
             <Maximize2 className="w-5 h-5 text-emerald-400" />
-            AJUSTE DE ESQUINAS DE PRECISIÓN
+            <span>AJUSTE DE ESQUINAS DE PRECISIÓN</span>
+            {isAutoDetected && (
+              <span className="inline-flex items-center gap-1 bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 text-[10px] font-extrabold px-2.5 py-0.5 rounded-full uppercase tracking-widest font-mono">
+                <Sparkles className="w-3 h-3 text-emerald-400" />
+                Auto-Detectado
+              </span>
+            )}
           </h3>
           <p className="text-xs text-slate-400 mt-1">
             Arrastra los puntos brillantes a las esquinas exactas del papel para una reconstrucción perfecta.

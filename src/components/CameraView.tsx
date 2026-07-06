@@ -142,10 +142,10 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
     const dataUrl = canvas.toDataURL('image/jpeg', 0.95);
 
     // Calculate autoCorners corresponding to the green bounding box on screen
-    // Green box has top: 44%, height: 72% (max-h: 420px), aspect ratio: 1/1.414 (A4 format)
+    // Green box has top: 44%, height: 78% (max-h: 460px), aspect ratio: 1/1.414 (A4 format)
     const greenBoxTopPct = 0.44;
-    const greenBoxHeightPct = 0.72;
-    const maxGreenHeight = 420;
+    const greenBoxHeightPct = 0.78;
+    const maxGreenHeight = 460;
 
     // Center of green box in container coordinates
     const xCenter = containerW / 2;
@@ -276,7 +276,7 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
           {!isLoading && (
             <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 z-10">
               {/* Green bounding box with massive box shadow to act as outer dark mask (cutout effect) */}
-              <div className="absolute top-[44%] left-1/2 -translate-x-1/2 -translate-y-1/2 h-[72%] max-h-[420px] aspect-[1/1.414] border-[3px] border-emerald-500/80 rounded-xl flex items-center justify-center shadow-[0_0_0_9999px_rgba(2,3,5,0.7),0_0_40px_rgba(16,185,129,0.45)]">
+              <div className="absolute top-[44%] left-1/2 -translate-x-1/2 -translate-y-1/2 h-[78%] max-h-[460px] aspect-[1/1.414] border-[3px] border-emerald-500/80 rounded-xl flex items-center justify-center shadow-[0_0_0_9999px_rgba(2,3,5,0.7),0_0_40px_rgba(16,185,129,0.45)]">
                 {/* Decorative corners */}
                 <div className="absolute -top-[3px] -left-[3px] w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-sm"></div>
                 <div className="absolute -top-[3px] -right-[3px] w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-sm"></div>
