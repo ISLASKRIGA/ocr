@@ -31,17 +31,17 @@ const FILTER_OPTIONS: FilterOption[] = [
   },
   {
     type: 'color-scan',
-    name: 'Escáner Color',
-    desc: 'Satura tintas y blanquea papel',
+    name: 'Mejorar (Filtro Mágico)',
+    desc: 'Blanquea papel y realza texto conservando firmas/tintas',
     icon: Sparkles,
-    colorClass: 'text-amber-400 bg-amber-950/20 border-amber-900/40'
+    colorClass: 'text-emerald-400 bg-emerald-950/20 border-emerald-900/40'
   },
   {
     type: 'bw',
-    name: 'Documento B/N',
-    desc: 'Texto de alto contraste y fondo puro',
+    name: 'Documento B/N (Eco)',
+    desc: 'Elimina sombras para un fondo blanco y texto negro puro',
     icon: FileText,
-    colorClass: 'text-emerald-400 bg-emerald-950/20 border-emerald-900/40'
+    colorClass: 'text-teal-400 bg-teal-950/20 border-teal-900/40'
   },
   {
     type: 'grayscale',

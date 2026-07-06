@@ -57,7 +57,7 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
     startY: number,
     endX: number,
     endY: number
-  ): { x: number; y: number; strength: number } | null {
+  ): { x: number; y: number; strength: number; grayInside: number; grayOutside: number } | null {
     const dx = endX - startX;
     const dy = endY - startY;
     const steps = Math.max(Math.abs(dx), Math.abs(dy));
@@ -122,7 +122,7 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
           const isStrongEdge = g > 18 && grayInside > 130;
 
           if (isTransition || isStrongEdge) {
-            return { x: pts[j].x, y: pts[j].y, strength: g };
+            return { x: pts[j].x, y: pts[j].y, strength: g, grayInside, grayOutside };
           }
         }
       }
@@ -139,7 +139,24 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
       }
     }
     if (bestIdx !== -1 && maxGrad > 9) {
-      return { x: pts[bestIdx].x, y: pts[bestIdx].y, strength: maxGrad };
+      let grayOutside = 0;
+      let grayInside = 0;
+      let count = 0;
+      for (let k = 1; k <= 3; k++) {
+        if (bestIdx - k >= 0 && bestIdx + k < pts.length) {
+          grayOutside += smoothGrays[bestIdx - k];
+          grayInside += smoothGrays[bestIdx + k];
+          count++;
+        }
+      }
+      if (count > 0) {
+        grayOutside /= count;
+        grayInside /= count;
+      } else {
+        grayOutside = 120;
+        grayInside = 180;
+      }
+      return { x: pts[bestIdx].x, y: pts[bestIdx].y, strength: maxGrad, grayInside, grayOutside };
     }
 
     return null;
@@ -151,7 +168,7 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
     target: { x: number; y: number },
     type: 'tl' | 'tr' | 'br' | 'bl'
   ): Point {
-    const candidates: { x: number; y: number; strength: number }[] = [];
+    const candidates: { x: number; y: number; strength: number; grayInside: number; grayOutside: number }[] = [];
 
     for (const start of startPoints) {
       const result = scanRay(start.x, start.y, target.x, target.y);
@@ -164,32 +181,31 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
       return { x: startPoints[0].x / width, y: startPoints[0].y / height };
     }
 
-    // Sort candidates to find the one closest to the corner of the image
+    // Define ideal corner zone centers (normalized)
+    let idealX = 0.20;
+    let idealY = 0.15;
+    if (type === 'tr') { idealX = 0.80; idealY = 0.15; }
+    else if (type === 'br') { idealX = 0.80; idealY = 0.85; }
+    else if (type === 'bl') { idealX = 0.20; idealY = 0.85; }
+
+    // Sort candidates using multi-factor scan score
     candidates.sort((a, b) => {
-      let scoreA = 0;
-      let scoreB = 0;
-      if (type === 'tl') {
-        scoreA = a.x * a.x + a.y * a.y;
-        scoreB = b.x * b.x + b.y * b.y;
-      } else if (type === 'tr') {
-        const dxA = width - a.x;
-        const dxB = width - b.x;
-        scoreA = dxA * dxA + a.y * a.y;
-        scoreB = dxB * dxB + b.y * b.y;
-      } else if (type === 'br') {
-        const dxA = width - a.x;
-        const dxB = width - b.x;
-        const dyA = height - a.y;
-        const dyB = height - b.y;
-        scoreA = dxA * dxA + dyA * dyA;
-        scoreB = dxB * dxB + dyB * dyB;
-      } else if (type === 'bl') {
-        const dyA = height - a.y;
-        const dyB = height - b.y;
-        scoreA = a.x * a.x + dyA * dyA;
-        scoreB = b.x * b.x + dyB * dyB;
-      }
-      return scoreA - scoreB;
+      const axNorm = a.x / width;
+      const ayNorm = a.y / height;
+      const bxNorm = b.x / width;
+      const byNorm = b.y / height;
+
+      const distA = Math.hypot(axNorm - idealX, ayNorm - idealY);
+      const distB = Math.hypot(bxNorm - idealX, byNorm - idealY);
+
+      const contrastA = Math.max(1, a.grayInside - a.grayOutside);
+      const contrastB = Math.max(1, b.grayInside - b.grayOutside);
+
+      // Higher score is better. Score boosts high gradients, transitions, and proximity to ideal zones
+      const scoreA = (a.strength * contrastA * a.grayInside) / (1 + 10 * distA);
+      const scoreB = (b.strength * contrastB * b.grayInside) / (1 + 10 * distB);
+
+      return scoreB - scoreA;
     });
 
     const best = candidates[0];
