@@ -152,7 +152,7 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
   }
 
   return (
-    <div className="relative w-full h-[calc(100vh-140px)] md:h-[calc(100vh-160px)] bg-slate-950 flex flex-col items-center justify-center overflow-hidden rounded-2xl shadow-2xl border border-slate-800">
+    <div className="relative max-w-md mx-auto w-full h-[580px] bg-[#020305] flex flex-col items-center justify-center overflow-hidden rounded-3xl shadow-[0_20px_50px_rgba(0,0,0,0.8)] border border-white/10">
       {/* Invisible file input */}
       <input
         type="file"
@@ -193,11 +193,8 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
           {/* Glowing Green Overlay Bounding Frame */}
           {!isLoading && (
             <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 z-10">
-              {/* Semi-transparent mask on outer edges, leaving a clean green rectangle in center */}
-              <div className="absolute inset-0 bg-[#020305]/65"></div>
-
-              {/* Green bounding box */}
-              <div className="absolute top-[38%] left-1/2 -translate-x-1/2 -translate-y-1/2 h-[48%] sm:h-[52%] max-h-[380px] md:max-h-[440px] aspect-[1/1.414] border-[3px] border-emerald-500/80 rounded-xl flex items-center justify-center shadow-[0_0_40px_rgba(16,185,129,0.25),inset_0_0_30px_rgba(16,185,129,0.15)]">
+              {/* Green bounding box with massive box shadow to act as outer dark mask (cutout effect) */}
+              <div className="absolute top-[42%] left-1/2 -translate-x-1/2 -translate-y-1/2 h-[52%] max-h-[300px] aspect-[1/1.414] border-[3px] border-emerald-500/80 rounded-xl flex items-center justify-center shadow-[0_0_0_9999px_rgba(2,3,5,0.7),0_0_30px_rgba(16,185,129,0.35)]">
                 {/* Decorative corners */}
                 <div className="absolute -top-[3px] -left-[3px] w-8 h-8 border-t-4 border-l-4 border-emerald-400 rounded-tl-sm"></div>
                 <div className="absolute -top-[3px] -right-[3px] w-8 h-8 border-t-4 border-r-4 border-emerald-400 rounded-tr-sm"></div>
@@ -219,9 +216,9 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
 
               {/* Helper text on top */}
               <div className="absolute top-4 inset-x-0 text-center z-20">
-                <p className="text-sm md:text-base font-medium text-slate-100 drop-shadow-lg flex items-center justify-center gap-1.5">
+                <p className="text-xs md:text-sm font-semibold text-slate-100 drop-shadow-lg flex items-center justify-center gap-1.5 uppercase tracking-wider">
                   <Sparkles className="w-4 h-4 text-emerald-400 animate-pulse" />
-                  ALINEA LOS BORDES DE LA HOJA CON EL CUADRO VERDE
+                  ALINEA LOS BORDES CON EL CUADRO VERDE
                 </p>
               </div>
             </div>
@@ -240,7 +237,7 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
 
           {/* Overlay controls */}
           {!isLoading && (
-            <div className="absolute bottom-8 inset-x-0 flex items-center justify-between gap-4 z-20 px-8 max-w-lg mx-auto bg-black/40 border border-white/5 backdrop-blur-2xl py-4 rounded-3xl shadow-2xl">
+            <div className="absolute bottom-5 inset-x-5 flex items-center justify-between gap-4 z-20 px-6 bg-black/60 border border-white/5 backdrop-blur-2xl py-3.5 rounded-2xl shadow-2xl">
               {/* Gallery upload option */}
               <div className="flex flex-col items-center gap-1">
                 <button
@@ -254,14 +251,14 @@ export default function CameraView({ onCapture, onImageUpload }: CameraViewProps
               </div>
 
               {/* Huge Shutter Capture Button */}
-              <div className="relative -top-10">
+              <div className="relative -top-8">
                 <div 
                   onClick={handleCapture}
-                  className="w-24 h-24 rounded-full bg-black border-[6px] border-emerald-500 hover:border-emerald-400 flex items-center justify-center p-1 cursor-pointer transition-transform active:scale-95 shadow-[0_0_30px_rgba(16,185,129,0.35)]"
+                  className="w-20 h-20 rounded-full bg-black border-[5px] border-emerald-500 hover:border-emerald-400 flex items-center justify-center p-1 cursor-pointer transition-transform active:scale-95 shadow-[0_0_25px_rgba(16,185,129,0.35)]"
                   title="Capturar foto"
                 >
-                  <div className="w-full h-full rounded-full bg-white hover:bg-slate-100 flex items-center justify-center shadow-[0_0_20px_rgba(255,255,255,0.6)]">
-                    <Camera className="w-8 h-8 text-black stroke-[2.5]" />
+                  <div className="w-full h-full rounded-full bg-white hover:bg-slate-100 flex items-center justify-center shadow-[0_0_15px_rgba(255,255,255,0.6)]">
+                    <Camera className="w-7 h-7 text-black stroke-[2.5]" />
                   </div>
                 </div>
               </div>
