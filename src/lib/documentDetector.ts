@@ -1,6 +1,20 @@
 import { Point } from '../types';
 
 /**
+ * Helper to compute area of quadrilateral using Shoelace formula
+ */
+export function getQuadArea(pts: Point[]): number {
+  if (pts.length !== 4) return 0;
+  const [p1, p2, p3, p4] = pts;
+  return 0.5 * Math.abs(
+    (p1.x * p2.y - p1.y * p2.x) +
+    (p2.x * p3.y - p2.y * p3.x) +
+    (p3.x * p4.y - p3.y * p4.x) +
+    (p4.x * p1.y - p4.y * p1.x)
+  );
+}
+
+/**
  * Grayscales the image, calculates gradients, and scans diagonals inward to detect
  * the 4 corners of a sheet of paper.
  */
@@ -33,6 +47,151 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
     const b = data[i + 2];
     // Rec. 601 luma coefficients
     gray[i / 4] = Math.round(0.299 * r + 0.587 * g + 0.114 * b);
+  }
+
+  // --- Premium Otsu + Largest Connected Component Corner Detector ---
+  // Calculates an adaptive threshold based on Otsu's method and extracts the largest bright component.
+  try {
+    const histogram = new Int32Array(256);
+    for (let i = 0; i < gray.length; i++) {
+      histogram[gray[i]]++;
+    }
+
+    const total = gray.length;
+    let sum = 0;
+    for (let i = 0; i < 256; i++) {
+      sum += i * histogram[i];
+    }
+
+    let sumB = 0;
+    let wB = 0;
+    let wF = 0;
+    let maxVariance = 0;
+    let threshold = 127;
+
+    for (let i = 0; i < 256; i++) {
+      wB += histogram[i];
+      if (wB === 0) continue;
+      wF = total - wB;
+      if (wF === 0) break;
+
+      sumB += i * histogram[i];
+      const mB = sumB / wB;
+      const mF = (sum - sumB) / wF;
+
+      const varianceBetween = wB * wF * (mB - mF) * (mB - mF);
+      if (varianceBetween > maxVariance) {
+        maxVariance = varianceBetween;
+        threshold = i;
+      }
+    }
+
+    const binary = new Uint8Array(width * height);
+    for (let i = 0; i < gray.length; i++) {
+      binary[i] = gray[i] >= threshold ? 1 : 0;
+    }
+
+    const visited = new Uint8Array(width * height);
+    let maxComponentSize = 0;
+    let bestComponentCorners: Point[] | null = null;
+
+    // BFS with a grid-sampling seed finder for 16x speed
+    for (let y = 10; y < height - 10; y += 4) {
+      for (let x = 10; x < width - 10; x += 4) {
+        const idx = y * width + x;
+        if (binary[idx] === 1 && visited[idx] === 0) {
+          let compSize = 0;
+          let minSum = Infinity, maxSum = -Infinity;
+          let minDiff = Infinity, maxDiff = -Infinity;
+          let tlPt = { x: 0, y: 0 };
+          let trPt = { x: 0, y: 0 };
+          let brPt = { x: 0, y: 0 };
+          let blPt = { x: 0, y: 0 };
+
+          const queue = new Int32Array(width * height);
+          let head = 0;
+          let tail = 0;
+
+          queue[tail++] = idx;
+          visited[idx] = 1;
+
+          while (head < tail) {
+            const curr = queue[head++];
+            compSize++;
+
+            const cx = curr % width;
+            const cy = Math.floor(curr / width);
+
+            const sum = cx + cy;
+            const diff = cx - cy;
+
+            if (sum < minSum) {
+              minSum = sum;
+              tlPt = { x: cx, y: cy };
+            }
+            if (sum > maxSum) {
+              maxSum = sum;
+              brPt = { x: cx, y: cy };
+            }
+            if (diff < minDiff) {
+              minDiff = diff;
+              blPt = { x: cx, y: cy };
+            }
+            if (diff > maxDiff) {
+              maxDiff = diff;
+              trPt = { x: cx, y: cy };
+            }
+
+            const neighbors = [
+              curr - 1,
+              curr + 1,
+              curr - width,
+              curr + width
+            ];
+
+            for (const n of neighbors) {
+              if (n >= 0 && n < width * height) {
+                const nx = n % width;
+                const ny = Math.floor(n / width);
+                if (nx >= 2 && nx < width - 2 && ny >= 2 && ny < height - 2) {
+                  if (binary[n] === 1 && visited[n] === 0) {
+                    visited[n] = 1;
+                    queue[tail++] = n;
+                  }
+                }
+              }
+            }
+          }
+
+          if (compSize > maxComponentSize) {
+            maxComponentSize = compSize;
+            bestComponentCorners = [
+              { x: tlPt.x / width, y: tlPt.y / height },
+              { x: trPt.x / width, y: trPt.y / height },
+              { x: brPt.x / width, y: brPt.y / height },
+              { x: blPt.x / width, y: blPt.y / height }
+            ];
+          }
+        }
+      }
+    }
+
+    if (bestComponentCorners) {
+      const ordered = orderCorners(bestComponentCorners);
+      const area = getQuadArea(ordered);
+      const minDistance = 0.20;
+      const isTooClose =
+        Math.hypot(ordered[0].x - ordered[1].x, ordered[0].y - ordered[1].y) < minDistance ||
+        Math.hypot(ordered[1].x - ordered[2].x, ordered[1].y - ordered[2].y) < minDistance ||
+        Math.hypot(ordered[2].x - ordered[3].x, ordered[2].y - ordered[3].y) < minDistance ||
+        Math.hypot(ordered[3].x - ordered[0].x, ordered[3].y - ordered[0].y) < minDistance;
+
+      if (!isTooClose && area > 0.18 && area < 0.95) {
+        return expandCorners(ordered, 0.015); // Exquisitely snap to the clean paper margin
+      }
+    }
+  } catch (err) {
+    console.error("Premium connected component detector failed, falling back to ray scan:", err);
   }
 
   // Calculate pixel gradients (Sobel-like)
@@ -260,18 +419,6 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
 
   // Robustly order the corners in a clockwise direction starting from Top-Left
   const orderedCorners = orderCorners([tl, tr, br, bl]);
-
-  // Helper to compute area of quadrilateral using Shoelace formula
-  function getQuadArea(pts: Point[]): number {
-    if (pts.length !== 4) return 0;
-    const [p1, p2, p3, p4] = pts;
-    return 0.5 * Math.abs(
-      (p1.x * p2.y - p1.y * p2.x) +
-      (p2.x * p3.y - p2.y * p3.x) +
-      (p3.x * p4.y - p3.y * p4.x) +
-      (p4.x * p1.y - p4.y * p1.x)
-    );
-  }
 
   // Quick sanity checks to avoid overlapping/collapsed shapes
   const minDistance = 0.20;

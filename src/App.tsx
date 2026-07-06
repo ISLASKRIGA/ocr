@@ -99,37 +99,9 @@ export default function App() {
   }
 
   // Capture callback
-  function handleImageAcquired(dataUrl: string, autoCorners?: Point[]) {
+  function handleImageAcquired(dataUrl: string) {
     setTempOriginalUrl(dataUrl);
-    setIsWarping(true); // Show the loading state while analyzing image
-
-    const img = new Image();
-    img.src = dataUrl;
-    img.onload = () => {
-      let finalCorners;
-      try {
-        // Run smart sheet/paper edge detection!
-        finalCorners = detectDocumentCorners(img);
-      } catch (err) {
-        console.error("Auto-detection failed, using box coordinates", err);
-        // Fallback to the bounding box if CV fails
-        finalCorners = autoCorners || [
-          { x: 0.24, y: 0.08 },
-          { x: 0.76, y: 0.08 },
-          { x: 0.76, y: 0.80 },
-          { x: 0.24, y: 0.80 },
-        ];
-      }
-      
-      // Instant auto-crop with detected corners!
-      processWarpAndAdvance(dataUrl, finalCorners);
-    };
-
-    img.onerror = () => {
-      setIsWarping(false);
-      // Fallback to manual adjust if image loads incorrectly
-      setActiveStep('adjust');
-    };
+    setActiveStep('adjust');
   }
 
   // Corner confirmation callback: performs warp based on manual adjustment
