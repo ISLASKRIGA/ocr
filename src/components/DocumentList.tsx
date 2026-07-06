@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { FileText, Plus, Trash2, ArrowLeft, ArrowRight, Download, Edit3, Eye, FileSpreadsheet, Check, CheckSquare } from 'lucide-react';
+import { FileText, Plus, Trash2, ArrowLeft, ArrowRight, Download, Edit3, Eye, Check, CheckCircle, Sparkles, X, Copy } from 'lucide-react';
 import { ScannedPage } from '../types';
 import { jsPDF } from 'jspdf';
 import { motion, AnimatePresence } from 'motion/react';
@@ -27,6 +27,50 @@ export default function DocumentList({
   const [tempName, setTempName] = useState<string>(docName);
   const [previewPage, setPreviewPage] = useState<ScannedPage | null>(null);
   const [isExporting, setIsExporting] = useState<boolean>(false);
+  const [selectedOcrPage, setSelectedOcrPage] = useState<ScannedPage | null>(null);
+  const [runningOcrPageId, setRunningOcrPageId] = useState<string | null>(null);
+  const [copied, setCopied] = useState<boolean>(false);
+  const [isOcrEnabled, setIsOcrEnabled] = useState<boolean>(true);
+  const [ocrProgressText, setOcrProgressText] = useState<string>('');
+
+  function handleCopyText(text: string) {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  }
+
+  async function handleSinglePageOcr(page: ScannedPage) {
+    setRunningOcrPageId(page.id);
+    try {
+      const response = await fetch('/api/ocr', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ image: page.filteredUrl }),
+      });
+
+      if (!response.ok) {
+        const errData = await response.json().catch(() => ({}));
+        throw new Error(errData.error || 'Error al procesar el OCR');
+      }
+
+      const ocrResult = await response.json();
+      
+      const updatedPages = pages.map(p => {
+        if (p.id === page.id) {
+          return { ...p, ocr: ocrResult };
+        }
+        return p;
+      });
+      onReorderPages(updatedPages);
+    } catch (err: any) {
+      console.error('OCR error:', err);
+      alert(`No se pudo realizar el OCR: ${err.message || 'Error desconocido'}`);
+    } finally {
+      setRunningOcrPageId(null);
+    }
+  }
 
   function handleNameSave() {
     const trimmed = tempName.trim();
@@ -59,43 +103,107 @@ export default function DocumentList({
   async function handleExportPdf() {
     if (pages.length === 0) return;
     setIsExporting(true);
+    setOcrProgressText('Iniciando...');
 
-    // Give UI half a second to show loading state
-    setTimeout(() => {
-      try {
-        const pdf = new jsPDF({
-          orientation: 'portrait',
-          unit: 'mm',
-          format: 'a4'
-        });
+    try {
+      const currentPages = pages.map(p => ({ ...p }));
 
-        pages.forEach((page, index) => {
-          if (index > 0) {
-            pdf.addPage('a4', 'portrait');
+      if (isOcrEnabled) {
+        const pagesToOcr = currentPages.filter(p => !p.ocr);
+        
+        if (pagesToOcr.length > 0) {
+          setOcrProgressText(`Procesando OCR con IA...`);
+          
+          for (let i = 0; i < pagesToOcr.length; i++) {
+            const page = pagesToOcr[i];
+            const originalIndex = currentPages.findIndex(p => p.id === page.id);
+            setOcrProgressText(`OCR en pág. ${originalIndex + 1} de ${currentPages.length}...`);
+            
+            const response = await fetch('/api/ocr', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+              },
+              body: JSON.stringify({ image: page.filteredUrl }),
+            });
+
+            if (!response.ok) {
+              const errData = await response.json().catch(() => ({}));
+              throw new Error(`Fallo OCR pág. ${originalIndex + 1}: ${errData.error || 'Fallo de API'}`);
+            }
+
+            const ocrResult = await response.json();
+            page.ocr = ocrResult;
           }
 
-          // A4 dimensions are 210mm x 297mm
-          pdf.addImage(
-            page.filteredUrl,
-            'JPEG',
-            0,
-            0,
-            210,
-            297,
-            undefined,
-            'FAST'
-          );
-        });
-
-        const filename = docName.toLowerCase().endsWith('.pdf') ? docName : `${docName}.pdf`;
-        pdf.save(filename);
-      } catch (err) {
-        console.error('Error generating PDF:', err);
-        alert('Hubo un error al generar el PDF. Por favor intenta de nuevo.');
-      } finally {
-        setIsExporting(false);
+          // Save the pages with OCR cache
+          onReorderPages(currentPages);
+        }
       }
-    }, 500);
+
+      setOcrProgressText('Compilando PDF...');
+      await new Promise(resolve => setTimeout(resolve, 300));
+
+      const pdf = new jsPDF({
+        orientation: 'portrait',
+        unit: 'pt',
+        format: 'a4'
+      });
+
+      const pdfWidth = 595.28;
+      const pdfHeight = 841.89;
+
+      currentPages.forEach((page, index) => {
+        if (index > 0) {
+          pdf.addPage('a4', 'portrait');
+        }
+
+        // Add the scanned page image
+        pdf.addImage(
+          page.filteredUrl,
+          'JPEG',
+          0,
+          0,
+          pdfWidth,
+          pdfHeight,
+          undefined,
+          'FAST'
+        );
+
+        // Add OCR layer if enabled and exists
+        if (isOcrEnabled && page.ocr && page.ocr.lines) {
+          pdf.setFont('Helvetica', 'normal');
+          
+          page.ocr.lines.forEach(line => {
+            if (!line.text || !line.boundingBox || line.boundingBox.length < 4) return;
+            
+            const [ymin, xmin, ymax, xmax] = line.boundingBox;
+            
+            const y = (ymin / 1000) * pdfHeight;
+            const x = (xmin / 1000) * pdfWidth;
+            const lineH = ((ymax - ymin) / 1000) * pdfHeight;
+
+            // Set font size matching original text height
+            const fontSize = Math.max(4, lineH * 0.82);
+            pdf.setFontSize(fontSize);
+
+            // Add standard invisible text layer overlay for highlightability
+            pdf.text(line.text, x, y + lineH * 0.82, {
+              renderingMode: 'invisible'
+            });
+          });
+        }
+      });
+
+      const filename = docName.toLowerCase().endsWith('.pdf') ? docName : `${docName}.pdf`;
+      pdf.save(filename);
+    } catch (err: any) {
+      console.error('Error generating PDF:', err);
+      alert(`Hubo un error al generar el PDF con OCR: ${err.message || 'Intenta de nuevo.'}`);
+    } finally {
+      setIsExporting(false);
+      setOcrProgressText('');
+    }
   }
 
   return (
@@ -146,31 +254,50 @@ export default function DocumentList({
         </div>
 
         {/* Action buttons */}
-        <div className="flex items-center gap-3 shrink-0">
-          <button
-            onClick={onReset}
-            className="bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 font-medium px-5 py-3 rounded-xl text-sm transition active:scale-95 cursor-pointer font-mono uppercase tracking-wider text-xs"
-          >
-            Nuevo Lote
-          </button>
+        <div className="flex flex-col md:flex-row md:items-center gap-4 shrink-0">
+          {/* OCR Toggle */}
+          <label className="flex items-center gap-2.5 bg-white/3 border border-white/5 hover:border-emerald-500/20 px-4 py-2.5 rounded-xl cursor-pointer select-none transition">
+            <input
+              type="checkbox"
+              checked={isOcrEnabled}
+              onChange={(e) => setIsOcrEnabled(e.target.checked)}
+              className="accent-emerald-500 w-4 h-4 rounded border-white/10 text-emerald-500 focus:ring-emerald-400 focus:ring-offset-black bg-black cursor-pointer"
+            />
+            <div className="flex flex-col text-left">
+              <span className="text-[11px] font-bold text-slate-200 uppercase tracking-wide flex items-center gap-1.5">
+                <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                Capa OCR Buscable
+              </span>
+              <span className="text-[9px] text-slate-400">Texto seleccionable con IA</span>
+            </div>
+          </label>
 
-          <button
-            onClick={handleExportPdf}
-            disabled={pages.length === 0 || isExporting}
-            className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold px-6 py-3 rounded-xl text-sm shadow-lg shadow-emerald-950/40 transition active:scale-95 disabled:opacity-50 cursor-pointer disabled:pointer-events-none uppercase tracking-wider text-xs"
-          >
-            {isExporting ? (
-              <>
-                <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
-                Compilando PDF...
-              </>
-            ) : (
-              <>
-                <Download className="w-4 h-4 stroke-[2.5]" />
-                Exportar PDF
-              </>
-            )}
-          </button>
+          <div className="flex items-center gap-3">
+            <button
+              onClick={onReset}
+              className="bg-white/5 hover:bg-white/10 border border-white/10 text-slate-200 font-medium px-5 py-3 rounded-xl text-xs transition active:scale-95 cursor-pointer font-mono uppercase tracking-wider"
+            >
+              Nuevo Lote
+            </button>
+
+            <button
+              onClick={handleExportPdf}
+              disabled={pages.length === 0 || isExporting}
+              className="flex items-center gap-2 bg-gradient-to-r from-emerald-500 to-teal-600 hover:from-emerald-400 hover:to-teal-500 text-white font-bold px-6 py-3 rounded-xl text-xs shadow-lg shadow-emerald-950/40 transition active:scale-95 disabled:opacity-50 cursor-pointer disabled:pointer-events-none uppercase tracking-wider"
+            >
+              {isExporting ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin"></div>
+                  {ocrProgressText || 'Procesando...'}
+                </>
+              ) : (
+                <>
+                  <Download className="w-4 h-4 stroke-[2.5]" />
+                  {isOcrEnabled ? 'Exportar con OCR' : 'Exportar PDF'}
+                </>
+              )}
+            </button>
+          </div>
         </div>
       </div>
 
@@ -244,9 +371,41 @@ export default function DocumentList({
               </div>
 
               {/* Bottom detail row */}
-              <div className="p-4 bg-black/20 border-t border-white/5 flex items-center justify-between text-xs text-slate-400">
-                <span className="capitalize text-[11px] font-medium">{page.filterType === 'original' ? 'Original' : page.filterType === 'bw' ? 'Blanco y Negro' : page.filterType === 'color-scan' ? 'Escáner Color' : 'Escala Grises'}</span>
-                <span className="font-mono text-[9px] text-slate-500 uppercase tracking-wider">{page.width}x{page.height} px</span>
+              <div className="p-4 bg-black/20 border-t border-white/5 flex flex-col gap-2">
+                <div className="flex items-center justify-between text-[11px] text-slate-400">
+                  <span className="capitalize font-medium">{page.filterType === 'original' ? 'Original' : page.filterType === 'bw' ? 'Blanco y Negro' : page.filterType === 'color-scan' ? 'Escáner Color' : 'Escala Grises'}</span>
+                  <span className="font-mono text-[9px] text-slate-500 uppercase tracking-wider">{page.width}x{page.height} px</span>
+                </div>
+
+                <div className="pt-1">
+                  {page.ocr ? (
+                    <button
+                      onClick={() => setSelectedOcrPage(page)}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/20 hover:border-emerald-500/40 text-emerald-400 rounded-xl text-[11px] font-medium transition active:scale-98 cursor-pointer"
+                    >
+                      <CheckCircle className="w-3.5 h-3.5" />
+                      Ver Texto OCR
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => handleSinglePageOcr(page)}
+                      disabled={runningOcrPageId !== null}
+                      className="w-full flex items-center justify-center gap-1.5 py-1.5 px-3 bg-white/3 hover:bg-emerald-500/10 border border-white/5 hover:border-emerald-500/30 text-slate-300 hover:text-emerald-400 rounded-xl text-[11px] font-medium transition active:scale-98 cursor-pointer disabled:opacity-50 disabled:pointer-events-none"
+                    >
+                      {runningOcrPageId === page.id ? (
+                        <>
+                          <div className="w-3.5 h-3.5 border-2 border-emerald-500/20 border-t-emerald-400 rounded-full animate-spin"></div>
+                          Analizando...
+                        </>
+                      ) : (
+                        <>
+                          <Sparkles className="w-3.5 h-3.5 text-emerald-400" />
+                          Reconocer Texto (OCR)
+                        </>
+                      )}
+                    </button>
+                  )}
+                </div>
               </div>
             </motion.div>
           ))}
@@ -296,6 +455,66 @@ export default function DocumentList({
                 alt="Full resolution preview"
                 className="max-h-[60vh] md:max-h-[70vh] w-auto object-contain rounded shadow-3xl border border-white/10"
               />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* OCR Text Viewer Modal */}
+      {selectedOcrPage && selectedOcrPage.ocr && (
+        <div className="fixed inset-0 bg-black/95 flex items-center justify-center z-50 p-4 md:p-8 backdrop-blur-md animate-fade-in">
+          <div className="absolute inset-0" onClick={() => setSelectedOcrPage(null)}></div>
+          
+          <div className="relative bg-[#020305] border border-white/10 rounded-2xl overflow-hidden max-w-2xl w-full max-h-[85vh] flex flex-col shadow-3xl z-10 animate-scale-in">
+            {/* Modal Header */}
+            <div className="bg-black/80 px-6 py-4 border-b border-white/5 flex items-center justify-between backdrop-blur-md">
+              <div>
+                <h3 className="font-bold text-white text-sm uppercase tracking-wider flex items-center gap-1.5">
+                  <Sparkles className="w-4 h-4 text-emerald-400" />
+                  Texto Extraído (OCR Inteligente)
+                </h3>
+                <p className="text-xs text-slate-400 mt-0.5 font-mono">PÁGINA {pages.indexOf(selectedOcrPage) + 1} · TOTALMENTE COPIABLE</p>
+              </div>
+              <button
+                onClick={() => setSelectedOcrPage(null)}
+                className="p-1.5 text-slate-400 hover:text-white rounded-lg transition hover:bg-white/5 cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 bg-black p-6 overflow-auto flex flex-col gap-4">
+              <textarea
+                value={selectedOcrPage.ocr.fullText}
+                readOnly
+                className="w-full flex-1 min-h-[300px] max-h-[50vh] p-4 bg-white/2 border border-white/5 rounded-xl text-slate-300 font-sans text-sm leading-relaxed focus:outline-none resize-none font-mono selection:bg-emerald-500 selection:text-black"
+              />
+              
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  onClick={() => handleCopyText(selectedOcrPage.ocr!.fullText)}
+                  className="flex items-center gap-2 bg-emerald-500 hover:bg-emerald-400 text-black font-bold px-5 py-3 rounded-xl text-xs uppercase tracking-wider transition active:scale-95 cursor-pointer"
+                >
+                  {copied ? (
+                    <>
+                      <Check className="w-4 h-4 stroke-[2.5]" />
+                      Copiado
+                    </>
+                  ) : (
+                    <>
+                      <Copy className="w-4 h-4" />
+                      Copiar Texto
+                    </>
+                  )}
+                </button>
+                <button
+                  onClick={() => setSelectedOcrPage(null)}
+                  className="bg-white/5 hover:bg-white/10 border border-white/10 text-slate-300 px-5 py-3 rounded-xl text-xs uppercase tracking-wider transition cursor-pointer"
+                >
+                  Cerrar
+                </button>
+              </div>
             </div>
           </div>
         </div>
