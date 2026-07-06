@@ -7,9 +7,10 @@ interface CornerAdjusterProps {
   imageUrl: string;
   onConfirm: (corners: Point[]) => void;
   onCancel: () => void;
+  initialCorners?: Point[];
 }
 
-export default function CornerAdjuster({ imageUrl, onConfirm, onCancel }: CornerAdjusterProps) {
+export default function CornerAdjuster({ imageUrl, onConfirm, onCancel, initialCorners }: CornerAdjusterProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -58,17 +59,23 @@ export default function CornerAdjuster({ imageUrl, onConfirm, onCancel }: Corner
     setNaturalSize({ width: img.naturalWidth, height: img.naturalHeight });
     setImgLoaded(true);
 
-    // Run smart edge detection to snap corners to sheet of paper automatically
-    try {
-      const autoPts = detectDocumentCorners(img);
-      setCorners(autoPts);
-      setDetectedCorners(autoPts);
+    if (initialCorners && initialCorners.length === 4) {
+      setCorners(initialCorners);
+      setDetectedCorners(initialCorners);
       setIsAutoDetected(true);
-    } catch (err) {
-      console.error("Fallo la detección automática de hoja:", err);
-      const fallback = getDefaultCorners();
-      setCorners(fallback);
-      setDetectedCorners(fallback);
+    } else {
+      // Run smart edge detection to snap corners to sheet of paper automatically
+      try {
+        const autoPts = detectDocumentCorners(img);
+        setCorners(autoPts);
+        setDetectedCorners(autoPts);
+        setIsAutoDetected(true);
+      } catch (err) {
+        console.error("Fallo la detección automática de hoja:", err);
+        const fallback = getDefaultCorners();
+        setCorners(fallback);
+        setDetectedCorners(fallback);
+      }
     }
   }
 

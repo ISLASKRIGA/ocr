@@ -182,14 +182,28 @@ export default function DocumentList({
             const y = (ymin / 1000) * pdfHeight;
             const x = (xmin / 1000) * pdfWidth;
             const lineH = ((ymax - ymin) / 1000) * pdfHeight;
+            const lineW = ((xmax - xmin) / 1000) * pdfWidth;
 
             // Set font size matching original text height
             const fontSize = Math.max(4, lineH * 0.82);
             pdf.setFontSize(fontSize);
 
-            // Add standard invisible text layer overlay for highlightability
+            // Calculate precise character spacing so the text spans exactly the bounding box width
+            let charSpace = 0;
+            if (line.text.length > 1) {
+              const textWidth = pdf.getStringUnitWidth(line.text) * fontSize;
+              charSpace = (lineW - textWidth) / (line.text.length - 1);
+              // Clamp character spacing to avoid extreme overlapping or stretching in case of coordinate noise
+              const maxCharSpace = fontSize * 0.4;
+              const minCharSpace = -fontSize * 0.12;
+              if (charSpace > maxCharSpace) charSpace = maxCharSpace;
+              if (charSpace < minCharSpace) charSpace = minCharSpace;
+            }
+
+            // Add standard invisible text layer overlay for perfect highlightability and searchability
             pdf.text(line.text, x, y + lineH * 0.82, {
-              renderingMode: 'invisible'
+              renderingMode: 'invisible',
+              charSpace: charSpace
             });
           });
         }

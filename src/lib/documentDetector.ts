@@ -18,7 +18,7 @@ export function getQuadArea(pts: Point[]): number {
  * Grayscales the image, calculates gradients, and scans diagonals inward to detect
  * the 4 corners of a sheet of paper.
  */
-export function detectDocumentCorners(img: HTMLImageElement): Point[] {
+export function detectDocumentCorners(img: CanvasImageSource): Point[] {
   const canvas = document.createElement('canvas');
   const ctx = canvas.getContext('2d');
   if (!ctx) return getDefaultCorners();

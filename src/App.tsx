@@ -99,8 +99,11 @@ export default function App() {
   }
 
   // Capture callback
-  function handleImageAcquired(dataUrl: string) {
+  function handleImageAcquired(dataUrl: string, autoCorners?: Point[]) {
     setTempOriginalUrl(dataUrl);
+    if (autoCorners) {
+      setTempCorners(autoCorners);
+    }
     setActiveStep('adjust');
   }
 
@@ -309,6 +312,7 @@ export default function App() {
                 >
                   <CornerAdjuster
                     imageUrl={tempOriginalUrl}
+                    initialCorners={tempCorners || undefined}
                     onConfirm={handleCornersConfirmed}
                     onCancel={() => {
                       setTempOriginalUrl(null);
