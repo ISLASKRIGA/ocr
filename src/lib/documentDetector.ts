@@ -51,7 +51,7 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
 
   const center = { x: width / 2, y: height / 2 };
 
-  // Scan a ray from start point to target point to find the first significant gradient peak
+  // Scan a ray from start point to target point to find the paper edge
   function scanRay(
     startX: number,
     startY: number,
@@ -63,11 +63,11 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
     const steps = Math.max(Math.abs(dx), Math.abs(dy));
 
     // 1. Collect points along the ray
-    const pts: { x: number; y: number; grad: number }[] = [];
+    const pts: { x: number; y: number; grad: number; gray: number }[] = [];
     for (let i = 0; i < steps; i++) {
       const t = i / steps;
-      // Search window: 2% to 85% along the ray length
-      if (t < 0.02 || t > 0.85) continue;
+      // Search window: only scan the outer 68% of the ray to strictly avoid central page text
+      if (t < 0.01 || t > 0.68) continue;
 
       const px = Math.round(startX + dx * t);
       const py = Math.round(startY + dy * t);
@@ -75,63 +75,77 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
       if (px < 1 || px >= width - 1 || py < 1 || py >= height - 1) continue;
 
       const idx = py * width + px;
-      pts.push({ x: px, y: py, grad: gradient[idx] });
+      pts.push({ x: px, y: py, grad: gradient[idx], gray: gray[idx] });
     }
 
-    if (pts.length < 5) return null;
+    if (pts.length < 8) return null;
 
-    // 2. Smooth the gradient signal to filter high-frequency noise
+    // 2. Smooth the gradient and intensity signal to filter high-frequency noise
     const smoothGrads = new Float32Array(pts.length);
-    let globalMax = 0;
+    const smoothGrays = new Float32Array(pts.length);
     for (let j = 0; j < pts.length; j++) {
-      let sum = 0;
+      let gradSum = 0;
+      let graySum = 0;
       let count = 0;
       for (let k = -2; k <= 2; k++) {
         const idx = j + k;
         if (idx >= 0 && idx < pts.length) {
-          sum += pts[idx].grad;
+          gradSum += pts[idx].grad;
+          graySum += pts[idx].gray;
           count++;
         }
       }
-      const smoothed = sum / count;
-      smoothGrads[j] = smoothed;
-      if (smoothed > globalMax) {
-        globalMax = smoothed;
-      }
+      smoothGrads[j] = gradSum / count;
+      smoothGrays[j] = graySum / count;
     }
 
-    if (globalMax < 12) return null; // Very faint or no gradients found
-
-    // 3. Scan from the outside-in to find the first significant peak
-    // A peak is a local maximum above a dynamic threshold (e.g. 28% of globalMax)
-    const threshold = Math.max(16, globalMax * 0.28);
-    for (let j = 1; j < pts.length - 1; j++) {
+    // 3. Scan from outside-in (j from 3 to length - 4) to find the paper transition
+    // A paper boundary represents a sharp edge leading into a bright region.
+    for (let j = 3; j < pts.length - 3; j++) {
       const g = smoothGrads[j];
-      if (g >= threshold) {
-        // Check local peak condition (must be greater or equal to immediate neighbors)
+      if (g >= 12) {
+        // Is it a local peak?
         if (g >= smoothGrads[j - 1] && g >= smoothGrads[j + 1]) {
-          return { x: pts[j].x, y: pts[j].y, strength: g };
+          // Compute average brightness before (outside) and after (inside) the candidate peak
+          let grayOutside = 0;
+          let grayInside = 0;
+          for (let k = 1; k <= 3; k++) {
+            grayOutside += smoothGrays[j - k];
+            grayInside += smoothGrays[j + k];
+          }
+          grayOutside /= 3;
+          grayInside /= 3;
+
+          // Criterion A: Transition from a darker background to a bright white paper sheet
+          const isTransition = grayInside > grayOutside + 10 && grayInside > 105;
+          // Criterion B: High-contrast edge on a light-colored background
+          const isStrongEdge = g > 18 && grayInside > 130;
+
+          if (isTransition || isStrongEdge) {
+            return { x: pts[j].x, y: pts[j].y, strength: g };
+          }
         }
       }
     }
 
-    // Fallback: if no peak is found but we have a globalMax, return the global max point
-    let bestIdx = 0;
-    let bestVal = -1;
-    for (let j = 0; j < pts.length; j++) {
-      if (smoothGrads[j] > bestVal) {
-        bestVal = smoothGrads[j];
+    // Fallback: Return the highest gradient peak in the first 45% of the ray to prevent empty results
+    let bestIdx = -1;
+    let maxGrad = -1;
+    const limit = Math.round(pts.length * 0.45);
+    for (let j = 1; j < limit; j++) {
+      if (smoothGrads[j] > maxGrad) {
+        maxGrad = smoothGrads[j];
         bestIdx = j;
       }
     }
-    if (bestVal > 15) {
-      return { x: pts[bestIdx].x, y: pts[bestIdx].y, strength: bestVal };
+    if (bestIdx !== -1 && maxGrad > 9) {
+      return { x: pts[bestIdx].x, y: pts[bestIdx].y, strength: maxGrad };
     }
 
     return null;
   }
 
-  // Find a corner by selecting the candidate that is closest to the image corner
+  // Find a corner by selecting the candidate closest to the image boundary
   function findCorner(
     startPoints: { x: number; y: number }[],
     target: { x: number; y: number },
@@ -146,16 +160,11 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
       }
     }
 
-    // If no candidate was found on any ray, return the first start point as fallback
     if (candidates.length === 0) {
       return { x: startPoints[0].x / width, y: startPoints[0].y / height };
     }
 
-    // Sort candidates to find the one closest to the corner of the image:
-    // - tl: minimizes x^2 + y^2 (closest to 0,0)
-    // - tr: minimizes (width - x)^2 + y^2 (closest to width, 0)
-    // - br: minimizes (width - x)^2 + (height - y)^2 (closest to width, height)
-    // - bl: minimizes x^2 + (height - y)^2 (closest to 0, height)
+    // Sort candidates to find the one closest to the corner of the image
     candidates.sort((a, b) => {
       let scoreA = 0;
       let scoreB = 0;
@@ -180,7 +189,7 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
         scoreA = a.x * a.x + dyA * dyA;
         scoreB = b.x * b.x + dyB * dyB;
       }
-      return scoreA - scoreB; // Ascending sort: closest is first
+      return scoreA - scoreB;
     });
 
     const best = candidates[0];
@@ -236,6 +245,18 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
   // Robustly order the corners in a clockwise direction starting from Top-Left
   const orderedCorners = orderCorners([tl, tr, br, bl]);
 
+  // Helper to compute area of quadrilateral using Shoelace formula
+  function getQuadArea(pts: Point[]): number {
+    if (pts.length !== 4) return 0;
+    const [p1, p2, p3, p4] = pts;
+    return 0.5 * Math.abs(
+      (p1.x * p2.y - p1.y * p2.x) +
+      (p2.x * p3.y - p2.y * p3.x) +
+      (p3.x * p4.y - p3.y * p4.x) +
+      (p4.x * p1.y - p4.y * p1.x)
+    );
+  }
+
   // Quick sanity checks to avoid overlapping/collapsed shapes
   const minDistance = 0.20;
   const isTooClose =
@@ -244,7 +265,12 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
     Math.hypot(orderedCorners[2].x - orderedCorners[3].x, orderedCorners[2].y - orderedCorners[3].y) < minDistance ||
     Math.hypot(orderedCorners[3].x - orderedCorners[0].x, orderedCorners[3].y - orderedCorners[0].y) < minDistance;
 
-  if (isTooClose) {
+  // Area of the quadrilateral. Default green box is 0.3744.
+  // If the detected area is too small, it's a false positive (it probably detected internal text/lines).
+  // A threshold of 0.22 prevents false positives on background clutter.
+  const area = getQuadArea(orderedCorners);
+
+  if (isTooClose || area < 0.22) {
     return getDefaultCorners();
   }
 

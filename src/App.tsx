@@ -8,7 +8,7 @@ import DocumentList from './components/DocumentList';
 import { warpImage } from './utils/homography';
 import { motion, AnimatePresence } from 'motion/react';
 import { detectDocumentCorners, orderCorners } from './lib/documentDetector';
-import { rotateCanvas90 } from './utils/rotation';
+import { rotateCanvas90, deskewCanvas } from './utils/rotation';
 import { applyFilterToCanvas } from './utils/filters';
 
 export default function App() {
@@ -78,7 +78,11 @@ export default function App() {
         setWarpedSize({ width: targetW, height: targetH });
 
         // Run high-resolution warping algorithm (bilinear interpolation)
-        const warpedCanvas = warpImage(img, pixelCorners, targetW, targetH);
+        let warpedCanvas = warpImage(img, pixelCorners, targetW, targetH);
+        
+        // Auto-deskew/straighten the warped document using text line projection profiles
+        warpedCanvas = deskewCanvas(warpedCanvas);
+
         const warpedDataUrl = warpedCanvas.toDataURL('image/jpeg', 0.92);
 
         setTempWarpedUrl(warpedDataUrl);
