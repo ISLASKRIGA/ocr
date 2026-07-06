@@ -51,20 +51,23 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
 
   const center = { x: width / 2, y: height / 2 };
 
-  // Scan a ray from start point to target point to find the strongest gradient peak
-  function scanRay(startX: number, startY: number, endX: number, endY: number): { x: number; y: number; strength: number } | null {
+  // Scan a ray from start point to target point to find the first significant gradient peak
+  function scanRay(
+    startX: number,
+    startY: number,
+    endX: number,
+    endY: number
+  ): { x: number; y: number; strength: number } | null {
     const dx = endX - startX;
     const dy = endY - startY;
     const steps = Math.max(Math.abs(dx), Math.abs(dy));
 
-    let bestX = startX;
-    let bestY = startY;
-    let maxGrad = -1;
-
+    // 1. Collect points along the ray
+    const pts: { x: number; y: number; grad: number }[] = [];
     for (let i = 0; i < steps; i++) {
       const t = i / steps;
-      // Search window: 4% to 85% along the ray length
-      if (t < 0.04 || t > 0.85) continue;
+      // Search window: 2% to 85% along the ray length
+      if (t < 0.02 || t > 0.85) continue;
 
       const px = Math.round(startX + dx * t);
       const py = Math.round(startY + dy * t);
@@ -72,98 +75,210 @@ export function detectDocumentCorners(img: HTMLImageElement): Point[] {
       if (px < 1 || px >= width - 1 || py < 1 || py >= height - 1) continue;
 
       const idx = py * width + px;
-      const grad = gradient[idx];
+      pts.push({ x: px, y: py, grad: gradient[idx] });
+    }
 
-      if (grad > maxGrad) {
-        maxGrad = grad;
-        bestX = px;
-        bestY = py;
+    if (pts.length < 5) return null;
+
+    // 2. Smooth the gradient signal to filter high-frequency noise
+    const smoothGrads = new Float32Array(pts.length);
+    let globalMax = 0;
+    for (let j = 0; j < pts.length; j++) {
+      let sum = 0;
+      let count = 0;
+      for (let k = -2; k <= 2; k++) {
+        const idx = j + k;
+        if (idx >= 0 && idx < pts.length) {
+          sum += pts[idx].grad;
+          count++;
+        }
+      }
+      const smoothed = sum / count;
+      smoothGrads[j] = smoothed;
+      if (smoothed > globalMax) {
+        globalMax = smoothed;
       }
     }
 
-    if (maxGrad > 15) { // Minimum threshold for valid edge
-      return { x: bestX, y: bestY, strength: maxGrad };
+    if (globalMax < 12) return null; // Very faint or no gradients found
+
+    // 3. Scan from the outside-in to find the first significant peak
+    // A peak is a local maximum above a dynamic threshold (e.g. 28% of globalMax)
+    const threshold = Math.max(16, globalMax * 0.28);
+    for (let j = 1; j < pts.length - 1; j++) {
+      const g = smoothGrads[j];
+      if (g >= threshold) {
+        // Check local peak condition (must be greater or equal to immediate neighbors)
+        if (g >= smoothGrads[j - 1] && g >= smoothGrads[j + 1]) {
+          return { x: pts[j].x, y: pts[j].y, strength: g };
+        }
+      }
     }
+
+    // Fallback: if no peak is found but we have a globalMax, return the global max point
+    let bestIdx = 0;
+    let bestVal = -1;
+    for (let j = 0; j < pts.length; j++) {
+      if (smoothGrads[j] > bestVal) {
+        bestVal = smoothGrads[j];
+        bestIdx = j;
+      }
+    }
+    if (bestVal > 15) {
+      return { x: pts[bestIdx].x, y: pts[bestIdx].y, strength: bestVal };
+    }
+
     return null;
   }
 
-  // Average multi-ray search for a single corner region to filter noise
+  // Find a corner by selecting the candidate that is closest to the image corner
   function findCorner(
     startPoints: { x: number; y: number }[],
-    target: { x: number; y: number }
+    target: { x: number; y: number },
+    type: 'tl' | 'tr' | 'br' | 'bl'
   ): Point {
-    let sumX = 0;
-    let sumY = 0;
-    let count = 0;
+    const candidates: { x: number; y: number; strength: number }[] = [];
 
     for (const start of startPoints) {
       const result = scanRay(start.x, start.y, target.x, target.y);
       if (result) {
-        sumX += result.x;
-        sumY += result.y;
-        count++;
+        candidates.push(result);
       }
     }
 
-    if (count > 0) {
-      return { x: (sumX / count) / width, y: (sumY / count) / height };
+    // If no candidate was found on any ray, return the first start point as fallback
+    if (candidates.length === 0) {
+      return { x: startPoints[0].x / width, y: startPoints[0].y / height };
     }
-    return { x: startPoints[0].x / width, y: startPoints[0].y / height };
+
+    // Sort candidates to find the one closest to the corner of the image:
+    // - tl: minimizes x^2 + y^2 (closest to 0,0)
+    // - tr: minimizes (width - x)^2 + y^2 (closest to width, 0)
+    // - br: minimizes (width - x)^2 + (height - y)^2 (closest to width, height)
+    // - bl: minimizes x^2 + (height - y)^2 (closest to 0, height)
+    candidates.sort((a, b) => {
+      let scoreA = 0;
+      let scoreB = 0;
+      if (type === 'tl') {
+        scoreA = a.x * a.x + a.y * a.y;
+        scoreB = b.x * b.x + b.y * b.y;
+      } else if (type === 'tr') {
+        const dxA = width - a.x;
+        const dxB = width - b.x;
+        scoreA = dxA * dxA + a.y * a.y;
+        scoreB = dxB * dxB + b.y * b.y;
+      } else if (type === 'br') {
+        const dxA = width - a.x;
+        const dxB = width - b.x;
+        const dyA = height - a.y;
+        const dyB = height - b.y;
+        scoreA = dxA * dxA + dyA * dyA;
+        scoreB = dxB * dxB + dyB * dyB;
+      } else if (type === 'bl') {
+        const dyA = height - a.y;
+        const dyB = height - b.y;
+        scoreA = a.x * a.x + dyA * dyA;
+        scoreB = b.x * b.x + dyB * dyB;
+      }
+      return scoreA - scoreB; // Ascending sort: closest is first
+    });
+
+    const best = candidates[0];
+    return { x: best.x / width, y: best.y / height };
   }
 
   // Define starting outer-coordinate clusters for finding corners
   const tlPoints = [
-    { x: 10, y: 10 },
-    { x: 10, y: height * 0.18 },
-    { x: width * 0.18, y: 10 },
-    { x: width * 0.06, y: height * 0.06 },
-  ];
-  const trPoints = [
-    { x: width - 10, y: 10 },
-    { x: width - 10, y: height * 0.18 },
-    { x: width * 0.82, y: 10 },
-    { x: width - width * 0.06, y: height * 0.06 },
-  ];
-  const brPoints = [
-    { x: width - 10, y: height - 10 },
-    { x: width - 10, y: height * 0.82 },
-    { x: width * 0.82, y: height - 10 },
-    { x: width - width * 0.06, y: height - height * 0.06 },
-  ];
-  const blPoints = [
-    { x: 10, y: height - 10 },
-    { x: 10, y: height * 0.82 },
-    { x: width * 0.18, y: height - 10 },
-    { x: width * 0.06, y: height - height * 0.06 },
+    { x: 5, y: 5 },
+    { x: 5, y: Math.round(height * 0.12) },
+    { x: Math.round(width * 0.12), y: 5 },
+    { x: 5, y: Math.round(height * 0.24) },
+    { x: Math.round(width * 0.24), y: 5 },
+    { x: Math.round(width * 0.06), y: Math.round(height * 0.06) },
+    { x: Math.round(width * 0.15), y: Math.round(height * 0.15) },
   ];
 
-  const tl = findCorner(tlPoints, center);
-  const tr = findCorner(trPoints, center);
-  const br = findCorner(brPoints, center);
-  const bl = findCorner(blPoints, center);
+  const trPoints = [
+    { x: width - 5, y: 5 },
+    { x: width - 5, y: Math.round(height * 0.12) },
+    { x: Math.round(width * 0.88), y: 5 },
+    { x: width - 5, y: Math.round(height * 0.24) },
+    { x: Math.round(width * 0.76), y: 5 },
+    { x: Math.round(width * 0.94), y: Math.round(height * 0.06) },
+    { x: Math.round(width * 0.85), y: Math.round(height * 0.15) },
+  ];
+
+  const brPoints = [
+    { x: width - 5, y: height - 5 },
+    { x: width - 5, y: Math.round(height * 0.88) },
+    { x: Math.round(width * 0.88), y: height - 5 },
+    { x: width - 5, y: Math.round(height * 0.76) },
+    { x: Math.round(width * 0.76), y: height - 5 },
+    { x: Math.round(width * 0.94), y: Math.round(height * 0.94) },
+    { x: Math.round(width * 0.85), y: Math.round(height * 0.85) },
+  ];
+
+  const blPoints = [
+    { x: 5, y: height - 5 },
+    { x: 5, y: Math.round(height * 0.88) },
+    { x: Math.round(width * 0.12), y: height - 5 },
+    { x: 5, y: Math.round(height * 0.76) },
+    { x: Math.round(width * 0.24), y: height - 5 },
+    { x: Math.round(width * 0.06), y: Math.round(height * 0.94) },
+    { x: Math.round(width * 0.15), y: Math.round(height * 0.85) },
+  ];
+
+  const tl = findCorner(tlPoints, center, 'tl');
+  const tr = findCorner(trPoints, center, 'tr');
+  const br = findCorner(brPoints, center, 'br');
+  const bl = findCorner(blPoints, center, 'bl');
+
+  // Robustly order the corners in a clockwise direction starting from Top-Left
+  const orderedCorners = orderCorners([tl, tr, br, bl]);
 
   // Quick sanity checks to avoid overlapping/collapsed shapes
   const minDistance = 0.20;
   const isTooClose =
-    Math.hypot(tl.x - tr.x, tl.y - tr.y) < minDistance ||
-    Math.hypot(tr.x - br.x, tr.y - br.y) < minDistance ||
-    Math.hypot(br.x - bl.x, br.y - bl.y) < minDistance ||
-    Math.hypot(bl.x - tl.x, bl.y - tl.y) < minDistance;
+    Math.hypot(orderedCorners[0].x - orderedCorners[1].x, orderedCorners[0].y - orderedCorners[1].y) < minDistance ||
+    Math.hypot(orderedCorners[1].x - orderedCorners[2].x, orderedCorners[1].y - orderedCorners[2].y) < minDistance ||
+    Math.hypot(orderedCorners[2].x - orderedCorners[3].x, orderedCorners[2].y - orderedCorners[3].y) < minDistance ||
+    Math.hypot(orderedCorners[3].x - orderedCorners[0].x, orderedCorners[3].y - orderedCorners[0].y) < minDistance;
 
   if (isTooClose) {
     return getDefaultCorners();
   }
 
   // Slightly expand corners outward (2.5%) to ensure the entire page area is preserved safely
-  return expandCorners([tl, tr, br, bl], 0.025);
+  return expandCorners(orderedCorners, 0.025);
+}
+
+/**
+ * Orders 4 points of a quadrilateral in clockwise order starting from Top-Left:
+ * [Top-Left, Top-Right, Bottom-Right, Bottom-Left]
+ */
+export function orderCorners(pts: Point[]): Point[] {
+  if (pts.length !== 4) return pts;
+
+  // Calculate centroid (center of mass) of the 4 points
+  const cx = pts.reduce((sum, p) => sum + p.x, 0) / 4;
+  const cy = pts.reduce((sum, p) => sum + p.y, 0) / 4;
+
+  // Map each point to its polar angle relative to the centroid
+  const withAngles = pts.map(p => ({
+    p,
+    angle: Math.atan2(p.y - cy, p.x - cx),
+  }));
+
+  // Sort by angle ascending to get [TL, TR, BR, BL]
+  withAngles.sort((a, b) => a.angle - b.angle);
+
+  return withAngles.map(item => item.p);
 }
 
 /**
  * Returns default beautifully framed corners that align with the on-screen green guide box.
  */
 export function getDefaultCorners(): Point[] {
-  // Center is y = 0.44, h = 0.72. Top = 0.08, Bottom = 0.80.
-  // W = 0.72 / 1.414 = 0.509. Left = 0.2455, Right = 0.7545.
   return [
     { x: 0.24, y: 0.08 }, // TL
     { x: 0.76, y: 0.08 }, // TR

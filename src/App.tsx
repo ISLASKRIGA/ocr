@@ -7,7 +7,9 @@ import FilterSelector from './components/FilterSelector';
 import DocumentList from './components/DocumentList';
 import { warpImage } from './utils/homography';
 import { motion, AnimatePresence } from 'motion/react';
-import { detectDocumentCorners } from './lib/documentDetector';
+import { detectDocumentCorners, orderCorners } from './lib/documentDetector';
+import { rotateCanvas90 } from './utils/rotation';
+import { applyFilterToCanvas } from './utils/filters';
 
 export default function App() {
   const [activeStep, setActiveStep] = useState<AppStep>('camera');
@@ -41,7 +43,10 @@ export default function App() {
   // Performs the actual perspective warp
   function processWarpAndAdvance(imageUrl: string, corners: Point[]) {
     setIsWarping(true);
-    setTempCorners(corners);
+    
+    // Always order corners clockwise starting from Top-Left to guarantee correct upright warping
+    const orderedCorners = orderCorners(corners);
+    setTempCorners(orderedCorners);
 
     const img = new Image();
     img.src = imageUrl;
@@ -51,7 +56,7 @@ export default function App() {
         const naturalH = img.naturalHeight;
 
         // Convert relative coordinates back to high-res pixel coordinates
-        const pixelCorners = corners.map(c => ({
+        const pixelCorners = orderedCorners.map(c => ({
           x: c.x * naturalW,
           y: c.y * naturalH
         }));
@@ -127,6 +132,51 @@ export default function App() {
   function handleCornersConfirmed(corners: Point[]) {
     if (!tempOriginalUrl) return;
     processWarpAndAdvance(tempOriginalUrl, corners);
+  }
+
+  // Rotate the warped document 90 degrees clockwise
+  function handleRotateWarped() {
+    if (!tempWarpedUrl) return;
+    setIsWarping(true);
+
+    const img = new Image();
+    img.src = tempWarpedUrl;
+    img.onload = () => {
+      try {
+        const rotatedCanvas = rotateCanvas90(img);
+        const rotatedDataUrl = rotatedCanvas.toDataURL('image/jpeg', 0.92);
+
+        // Swap width and height for correct layout size (landscape/portrait swap)
+        setWarpedSize(prev => ({ width: prev.height, height: prev.width }));
+        setTempWarpedUrl(rotatedDataUrl);
+
+        // Reapply the active scan filter on the rotated canvas
+        const filterImg = new Image();
+        filterImg.src = rotatedDataUrl;
+        filterImg.onload = () => {
+          const canvas = document.createElement('canvas');
+          canvas.width = filterImg.naturalWidth;
+          canvas.height = filterImg.naturalHeight;
+          const ctx = canvas.getContext('2d');
+          if (ctx) {
+            ctx.drawImage(filterImg, 0, 0);
+            const filteredCanvas = applyFilterToCanvas(canvas, activeFilter);
+            const filteredDataUrl = filteredCanvas.toDataURL('image/jpeg', 0.85);
+            setTempFilteredUrl(filteredDataUrl);
+          }
+          setIsWarping(false);
+        };
+        filterImg.onerror = () => {
+          setIsWarping(false);
+        };
+      } catch (err) {
+        console.error('Failed to rotate:', err);
+        setIsWarping(false);
+      }
+    };
+    img.onerror = () => {
+      setIsWarping(false);
+    };
   }
 
   // Filter selection callback
@@ -312,6 +362,7 @@ export default function App() {
                     onAdjustCorners={() => {
                       setActiveStep('adjust');
                     }}
+                    onRotateWarped={handleRotateWarped}
                   />
                 </motion.div>
               )}

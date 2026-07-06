@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Sparkles, FileText, Palette, Sliders, Check } from 'lucide-react';
+import { Sparkles, FileText, Palette, Sliders, Check, RotateCw } from 'lucide-react';
 import { FilterType } from '../types';
 import { applyFilterToCanvas } from '../utils/filters';
 
@@ -10,6 +10,7 @@ interface FilterSelectorProps {
   onSave: () => void;
   onCancel: () => void;
   onAdjustCorners?: () => void;
+  onRotateWarped?: () => void;
 }
 
 interface FilterOption {
@@ -57,7 +58,8 @@ export default function FilterSelector({
   onChange,
   onSave,
   onCancel,
-  onAdjustCorners
+  onAdjustCorners,
+  onRotateWarped
 }: FilterSelectorProps) {
   const [previewUrls, setPreviewUrls] = useState<Record<FilterType, string>>({
     original: '',
@@ -190,16 +192,29 @@ export default function FilterSelector({
             </div>
           </div>
 
-          {onAdjustCorners && (
-            <button
-              onClick={onAdjustCorners}
-              disabled={isProcessing}
-              className="w-full bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-mono text-xs font-bold py-2.5 px-4 rounded-xl text-center border border-emerald-500/20 transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 uppercase tracking-wider"
-            >
-              <Sliders className="w-3.5 h-3.5" />
-              Reajustar recorte
-            </button>
-          )}
+          <div className="flex gap-3">
+            {onRotateWarped && (
+              <button
+                onClick={onRotateWarped}
+                disabled={isProcessing}
+                className="flex-1 bg-white/5 hover:bg-white/10 text-slate-300 font-mono text-xs font-bold py-2.5 px-3 rounded-xl border border-white/10 transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 uppercase tracking-wider"
+              >
+                <RotateCw className="w-3.5 h-3.5 text-emerald-400" />
+                Rotar 90°
+              </button>
+            )}
+
+            {onAdjustCorners && (
+              <button
+                onClick={onAdjustCorners}
+                disabled={isProcessing}
+                className="flex-1 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 font-mono text-xs font-bold py-2.5 px-3 rounded-xl border border-emerald-500/20 transition active:scale-95 cursor-pointer flex items-center justify-center gap-1.5 uppercase tracking-wider"
+              >
+                <Sliders className="w-3.5 h-3.5" />
+                Reajustar
+              </button>
+            )}
+          </div>
 
           <div className="pt-5 border-t border-white/5 mt-5 flex gap-3">
             <button
